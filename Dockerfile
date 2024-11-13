@@ -2,6 +2,9 @@ ARG BASE_VERSION=22.04
 
 ARG BASE_IMAGE=ubuntu:$BASE_VERSION
 
+FROM scratch as docker-context
+COPY ./ /docker-context
+
 FROM ${BASE_IMAGE} as documentserver
 LABEL maintainer Ascensio System SIA <support@onlyoffice.com>
 
@@ -21,6 +24,11 @@ ENV OC_DOWNLOAD_URL=https://download.oracle.com/otn_software/linux/instantclient
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en LC_ALL=en_US.UTF-8 DEBIAN_FRONTEND=noninteractive PG_VERSION=${PG_VERSION} BASE_VERSION=${BASE_VERSION}
 
 ARG ONLYOFFICE_VALUE=onlyoffice
+
+
+RUN rm /etc/apt/sources.list 
+ADD sources.list /etc/apt/sources.list
+RUN apt-get -y update && apt-get -y install ca-certificates
 
 RUN echo "#!/bin/sh\nexit 0" > /usr/sbin/policy-rc.d && \
     apt-get -y update && \
@@ -96,7 +104,6 @@ COPY config/supervisor/ds/*.conf /etc/supervisor/conf.d/
 COPY run-document-server.sh /app/ds/run-document-server.sh
 COPY oracle/sqlplus /usr/bin/sqlplus
 
-EXPOSE 80 443
 
 ARG COMPANY_NAME=onlyoffice
 ARG PRODUCT_NAME=documentserver
@@ -110,11 +117,14 @@ ENV COMPANY_NAME=$COMPANY_NAME \
     PRODUCT_EDITION=$PRODUCT_EDITION \
     DS_DOCKER_INSTALLATION=true
 
-RUN PACKAGE_FILE="${COMPANY_NAME}-${PRODUCT_NAME}${PRODUCT_EDITION}${PACKAGE_VERSION:+_$PACKAGE_VERSION}_${TARGETARCH:-$(dpkg --print-architecture)}.deb" && \
-    wget -q -P /tmp "$PACKAGE_BASEURL/$PACKAGE_FILE" && \
+ENV PACKAGE_FILE="${COMPANY_NAME}-${PRODUCT_NAME}${PRODUCT_EDITION}${PACKAGE_VERSION:+_$PACKAGE_VERSION}_${TARGETARCH:-$(dpkg --print-architecture)}.deb" 
+#COPY $PACKAGE_FILE /tmp/$PACKAGE_FILE
+#    wget -q -P /tmp "$PACKAGE_BASEURL/$PACKAGE_FILE" && \
+RUN  \
+    --mount=type=bind,from=docker-context,source=/docker-context,target=/docker-context \
     apt-get -y update && \
     service postgresql start && \
-    apt-get -yq install /tmp/$PACKAGE_FILE && \
+    apt-get -yq install /docker-context/$PACKAGE_FILE && \
     service postgresql stop && \
     chmod 755 /etc/init.d/supervisor && \
     sed "s/COMPANY_NAME/${COMPANY_NAME}/g" -i /etc/supervisor/conf.d/*.conf && \
@@ -126,8 +136,12 @@ RUN PACKAGE_FILE="${COMPANY_NAME}-${PRODUCT_NAME}${PRODUCT_EDITION}${PACKAGE_VER
     printf "\nexit" >> /var/www/$COMPANY_NAME/documentserver/server/schema/oracle/removetbl.sql && \
     rm -f /tmp/$PACKAGE_FILE && \
     rm -rf /var/log/$COMPANY_NAME && \
+    apt-get autoremove -y && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+
+EXPOSE 80 443
 VOLUME /var/log/$COMPANY_NAME /var/lib/$COMPANY_NAME /var/www/$COMPANY_NAME/Data /var/lib/postgresql /var/lib/rabbitmq /var/lib/redis /usr/share/fonts/truetype/custom
 
 ENTRYPOINT ["/app/ds/run-document-server.sh"]

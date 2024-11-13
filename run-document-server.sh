@@ -752,6 +752,8 @@ if [ ${ONLYOFFICE_DATA_CONTAINER} != "true" ]; then
   service cron start
 fi
 
+documentserver-flush-cache.sh
+#cat /etc/nginx/includes/ds-cache.conf
 # nginx used as a proxy, and as data container status service.
 # it run in all cases.
 service nginx start
